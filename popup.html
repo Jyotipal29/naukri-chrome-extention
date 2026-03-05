@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Naukri Auto-Uploader</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      width: 340px;
+      font-family: 'DM Sans', sans-serif;
+      background: #0a0d14;
+      color: #e0e4eb;
+      overflow-x: hidden;
+      position: relative;
+    }
+
+    /* Radial gradient mesh in top-left */
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 200px;
+      height: 200px;
+      background: radial-gradient(circle at 20% 20%, rgba(79, 142, 247, 0.15) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .container {
+      position: relative;
+      z-index: 1;
+      padding: 20px;
+    }
+
+    /* Header */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+
+    .logo-box {
+      width: 38px;
+      height: 38px;
+      background: linear-gradient(135deg, #4f8ef7 0%, #6b5ce6 100%);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      margin-right: 12px;
+    }
+
+    .header-content {
+      flex: 1;
+    }
+
+    .title {
+      font-family: 'Syne', sans-serif;
+      font-weight: 700;
+      font-size: 18px;
+      color: #ffffff;
+      margin-bottom: 2px;
+    }
+
+    .subtitle {
+      font-size: 11px;
+      color: #8b92a7;
+      font-weight: 400;
+    }
+
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+
+    .status-dot.active {
+      background: #10d88b;
+      box-shadow: 0 0 8px rgba(16, 216, 139, 0.5);
+    }
+
+    .status-dot.inactive {
+      background: #6b7280;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+
+    /* Schedule Banner */
+    .schedule-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+      padding: 12px 14px;
+      background: rgba(79, 142, 247, 0.08);
+      border-radius: 8px;
+      border: 1px solid rgba(79, 142, 247, 0.2);
+    }
+
+    .schedule-label {
+      font-size: 12px;
+      color: #8b92a7;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .schedule-chips {
+      display: flex;
+      gap: 8px;
+    }
+
+    .schedule-chip {
+      padding: 4px 10px;
+      background: rgba(79, 142, 247, 0.2);
+      border: 1px solid #4f8ef7;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #4f8ef7;
+      font-family: 'Syne', sans-serif;
+    }
+
+    /* Toast Notification */
+    .toast {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-100px);
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      z-index: 1000;
+      opacity: 0;
+      transition: all 0.3s ease;
+      pointer-events: none;
+      max-width: 300px;
+      text-align: center;
+    }
+
+    .toast.show {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+    }
+
+    .toast.success {
+      background: #10d88b;
+      color: #0a0d14;
+    }
+
+    .toast.error {
+      background: #f75252;
+      color: #ffffff;
+    }
+
+    /* Stats Row */
+    .stats-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    .stat-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    .stat-label {
+      font-size: 10px;
+      color: #8b92a7;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+      font-weight: 500;
+    }
+
+    .stat-value {
+      font-size: 20px;
+      font-weight: 700;
+      color: #ffffff;
+      font-family: 'Syne', sans-serif;
+    }
+
+    /* Form Sections */
+    .form-section {
+      margin-bottom: 20px;
+    }
+
+    .section-label {
+      font-size: 10px;
+      color: #8b92a7;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 10px;
+      font-weight: 600;
+    }
+
+    .input-field {
+      width: 100%;
+      padding: 12px 14px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      color: #e0e4eb;
+      font-size: 14px;
+      font-family: 'DM Sans', sans-serif;
+      margin-bottom: 10px;
+      transition: all 0.2s ease;
+    }
+
+    .input-field:focus {
+      outline: none;
+      border-color: #4f8ef7;
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .input-field::placeholder {
+      color: #6b7280;
+    }
+
+    /* File Upload Area */
+    .file-upload-area {
+      position: relative;
+      border: 2px dashed rgba(255, 255, 255, 0.2);
+      border-radius: 8px;
+      padding: 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .file-upload-area:hover {
+      border-color: #4f8ef7;
+      background: rgba(79, 142, 247, 0.05);
+    }
+
+    .file-upload-area.dragover {
+      border-color: #4f8ef7;
+      background: rgba(79, 142, 247, 0.1);
+    }
+
+    .file-input-hidden {
+      position: absolute;
+      width: 0;
+      height: 0;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .upload-icon {
+      font-size: 32px;
+      margin-bottom: 8px;
+    }
+
+    .upload-text {
+      font-size: 13px;
+      color: #e0e4eb;
+      margin-bottom: 4px;
+      font-weight: 500;
+    }
+
+    .upload-hint {
+      font-size: 11px;
+      color: #8b92a7;
+    }
+
+    .file-name-display {
+      margin-top: 12px;
+      padding: 8px 12px;
+      background: rgba(16, 216, 139, 0.1);
+      border: 1px solid rgba(16, 216, 139, 0.3);
+      border-radius: 6px;
+      font-size: 12px;
+      color: #10d88b;
+      display: none;
+    }
+
+    .file-name-display.show {
+      display: block;
+    }
+
+    /* Save Button */
+    .save-button {
+      width: 100%;
+      padding: 14px;
+      background: linear-gradient(135deg, #4f8ef7 0%, #6b5ce6 100%);
+      border: none;
+      border-radius: 8px;
+      color: #ffffff;
+      font-family: 'Syne', sans-serif;
+      font-weight: 700;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      margin-bottom: 16px;
+      box-shadow: 0 4px 12px rgba(79, 142, 247, 0.3);
+    }
+
+    .save-button:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(79, 142, 247, 0.4);
+    }
+
+    .save-button:active:not(:disabled) {
+      transform: translateY(0);
+    }
+
+    .save-button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    /* Footer */
+    .footer {
+      text-align: center;
+      font-size: 10px;
+      color: #6b7280;
+      padding-top: 12px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <div style="display: flex; align-items: center;">
+        <div class="logo-box">📄</div>
+        <div class="header-content">
+          <div class="title">Naukri Auto-Uploader</div>
+          <div class="subtitle">Resume scheduler for Naukri.com</div>
+        </div>
+      </div>
+      <div class="status-indicator">
+        <div class="status-dot inactive" id="statusDot"></div>
+        <span id="statusText">Setup needed</span>
+      </div>
+    </div>
+
+    <!-- Schedule Banner -->
+    <div class="schedule-banner">
+      <div class="schedule-label">Daily Schedule</div>
+      <div class="schedule-chips">
+        <div class="schedule-chip">9:00 AM</div>
+        <div class="schedule-chip">5:00 PM</div>
+      </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div class="toast" id="toast"></div>
+
+    <!-- Stats Row -->
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-label">Total Uploads</div>
+        <div class="stat-value" id="uploadCount">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Last Upload</div>
+        <div class="stat-value" id="lastUpload" style="font-size: 12px;">—</div>
+      </div>
+    </div>
+
+    <!-- Naukri Login Section -->
+    <div class="form-section">
+      <div class="section-label">Naukri Login</div>
+      <input type="text" class="input-field" id="emailInput" placeholder="your@email.com">
+      <input type="password" class="input-field" id="passwordInput" placeholder="••••••••">
+    </div>
+
+    <!-- Resume File Section -->
+    <div class="form-section">
+      <div class="section-label">Resume File</div>
+      <div class="file-upload-area" id="fileUploadArea">
+        <input type="file" class="file-input-hidden" id="resumeFileInput" accept=".pdf,.doc,.docx">
+        <div class="upload-icon">📎</div>
+        <div class="upload-text">Click or drag to upload</div>
+        <div class="upload-hint">PDF, DOC, DOCX (max 2MB)</div>
+        <div class="file-name-display" id="fileNameDisplay"></div>
+      </div>
+    </div>
+
+    <!-- Save Button -->
+    <button class="save-button" id="saveButton">Save & Activate Schedule</button>
+
+    <!-- Footer -->
+    <div class="footer">
+      Credentials are stored locally on your device only
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

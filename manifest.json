@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Naukri Resume Auto-Uploader",
+  "version": "1.0.0",
+  "description": "Automatically uploads your resume to Naukri profile twice daily at 9 AM and 5 PM",
+  "permissions": ["alarms", "storage", "tabs", "scripting", "notifications"],
+  "host_permissions": ["https://*.naukri.com/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.naukri.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
