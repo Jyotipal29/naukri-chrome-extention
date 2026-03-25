@@ -1,177 +1,199 @@
-// background.js - Service worker for alarms, scheduling, and tab orchestration
+// background.js - Handles alarms, scheduling, and resume upload via scripting API
 
-/**
- * Calculate the next alarm time for a given hour and minute
- * If the time has already passed today, schedule for tomorrow
- */
 function getNextAlarmTime(hour, minute) {
   const now = new Date();
   const alarm = new Date();
   alarm.setHours(hour, minute, 0, 0);
-  
-  // If the alarm time has already passed today, schedule for tomorrow
-  if (alarm <= now) {
-    alarm.setDate(alarm.getDate() + 1);
-  }
-  
+  if (alarm <= now) alarm.setDate(alarm.getDate() + 1);
   return alarm.getTime();
 }
 
-/**
- * Setup two daily alarms: 9 AM and 5 PM
- */
 async function setupAlarms() {
-  // Clear all existing alarms
-  const existingAlarms = await chrome.alarms.getAll();
-  for (const alarm of existingAlarms) {
+  const existing = await chrome.alarms.getAll();
+  for (const alarm of existing) {
     if (alarm.name.startsWith('naukri_upload_')) {
       await chrome.alarms.clear(alarm.name);
     }
   }
-  
-  // Create morning alarm (9:00 AM)
-  const morningTime = getNextAlarmTime(9, 0);
   chrome.alarms.create('naukri_upload_morning', {
-    when: morningTime,
-    periodInMinutes: 1440 // 24 hours
+    when: getNextAlarmTime(9, 0),
+    periodInMinutes: 1440
   });
-  
-  // Create evening alarm (5:00 PM)
-  const eveningTime = getNextAlarmTime(17, 0);
   chrome.alarms.create('naukri_upload_evening', {
-    when: eveningTime,
-    periodInMinutes: 1440 // 24 hours
+    when: getNextAlarmTime(17, 0),
+    periodInMinutes: 1440
   });
-  
-  console.log('Alarms set up: Morning at 9:00 AM, Evening at 5:00 PM');
 }
 
-/**
- * Show a notification to the user
- */
 function showNotification(title, message) {
   chrome.notifications.create({
     type: 'basic',
-    iconUrl: 'icons/icon48.png',
-    title: title,
-    message: message
+    iconUrl: chrome.runtime.getURL('icons/icon48.png'),
+    title,
+    message
   });
 }
 
-/**
- * Trigger resume upload process
- */
-async function triggerResumeUpload(timeLabel) {
-  // Read credentials and resume data from storage
-  const result = await chrome.storage.local.get(['credentials', 'resumeData', 'resumeFileName']);
-  
-  if (!result.credentials || !result.resumeData) {
-    showNotification(
-      'Naukri Upload — Action Required',
-      'Please set your credentials and upload your resume in the extension popup.'
-    );
+// This function is injected and runs directly inside the Naukri page
+async function naukriUploadScript(resumeBase64, resumeFileName) {
+  function sleep(ms) {
+    return new Promise(r => setTimeout(r, ms));
+  }
+
+  function base64ToFile(base64String, fileName) {
+    const ext = fileName.split('.').pop().toLowerCase();
+    const mimeMap = {
+      pdf: 'application/pdf',
+      docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      doc: 'application/msword',
+      rtf: 'application/rtf'
+    };
+    const mimeType = mimeMap[ext] || 'application/octet-stream';
+    const base64Data = base64String.includes(',') ? base64String.split(',')[1] : base64String;
+    const bytes = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+    return new File([bytes], fileName, { type: mimeType });
+  }
+
+  // Step 1: Click "View profile" if on dashboard
+  const viewProfileBtn = Array.from(document.querySelectorAll('a, button')).find(el =>
+    /^view\s*profile$/i.test(el.textContent.trim())
+  );
+  if (viewProfileBtn) {
+    console.log('[Naukri] Clicking View profile');
+    viewProfileBtn.click();
+    // Wait for profile page to render
+    await sleep(4000);
+  }
+
+  // Step 2: Find the file input
+  let fileInput = document.querySelector('#attachCV') ||
+                  document.querySelector('input[type="file"].fileUpload') ||
+                  document.querySelector('input[type="file"]');
+
+  console.log('[Naukri] File input found:', !!fileInput);
+
+  if (!fileInput) {
+    return { success: false, reason: 'File input #attachCV not found on page' };
+  }
+
+  // Step 3: Assign the file
+  const file = base64ToFile(resumeBase64, resumeFileName);
+  const dt = new DataTransfer();
+  dt.items.add(file);
+
+  const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'files')?.set;
+  if (nativeSetter) {
+    nativeSetter.call(fileInput, dt.files);
+  } else {
+    fileInput.files = dt.files;
+  }
+
+  console.log('[Naukri] Files set:', fileInput.files.length, fileInput.files[0]?.name);
+
+  // Step 4: Trigger change event — try both native and jQuery
+  fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+  fileInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+  const jq = window.jQuery || window.$;
+  if (jq) {
+    console.log('[Naukri] Triggering via jQuery');
+    jq(fileInput).trigger('change');
+  }
+
+  // Wait for Naukri's XHR upload to complete
+  await sleep(8000);
+
+  console.log('[Naukri] Upload flow done');
+  return { success: true };
+}
+
+async function triggerUpload(timeLabel) {
+  console.log('[Naukri BG] triggerUpload:', timeLabel);
+  const { resumeData, resumeFileName } = await chrome.storage.local.get(['resumeData', 'resumeFileName']);
+
+  if (!resumeData) {
+    showNotification('Naukri Auto-Uploader', 'No resume saved. Open the extension popup to set up.');
     return;
   }
-  
-  // Show starting notification
-  showNotification(
-    'Naukri Resume Upload Starting',
-    `Starting scheduled upload at ${timeLabel}...`
-  );
-  
-  // Open profile page in background tab
+
+  showNotification('Naukri Auto-Uploader', `Starting upload (${timeLabel})...`);
+
   const tab = await chrome.tabs.create({
     url: 'https://www.naukri.com/mnjuser/profile',
-    active: false
+    active: true
   });
-  
-  // Wait for tab to load, then send message to content script
-  const listener = (tabId, changeInfo) => {
-    if (tabId === tab.id && changeInfo.status === 'complete') {
-      chrome.tabs.onUpdated.removeListener(listener);
-      
-      // Send message to content script to start upload
-      chrome.tabs.sendMessage(tab.id, {
-        action: 'START_UPLOAD',
-        credentials: result.credentials,
-        resumeData: result.resumeData,
-        resumeFileName: result.resumeFileName,
-        timeLabel: timeLabel
-      }).catch(err => {
-        console.error('Failed to send message to content script:', err);
-        chrome.tabs.remove(tab.id);
-        showNotification(
-          '❌ Upload Failed',
-          'Could not communicate with Naukri page. Please try again.'
-        );
-      });
-    }
-  };
-  
-  chrome.tabs.onUpdated.addListener(listener);
+
+  console.log('[Naukri BG] Tab created:', tab.id);
+
+  // Wait for page to fully load
+  await new Promise(resolve => {
+    const listener = (tabId, changeInfo) => {
+      if (tabId === tab.id && changeInfo.status === 'complete') {
+        chrome.tabs.onUpdated.removeListener(listener);
+        resolve();
+      }
+    };
+    chrome.tabs.onUpdated.addListener(listener);
+  });
+
+  console.log('[Naukri BG] Page loaded, injecting upload script');
+  await new Promise(r => setTimeout(r, 1500));
+
+  try {
+    // Fire the script — don't await it (SW gets killed during the long wait)
+    chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: naukriUploadScript,
+      args: [resumeData, resumeFileName]
+    });
+
+    // Store tab ID so the alarm can close it later
+    await chrome.storage.local.set({ pendingUploadTabId: tab.id });
+
+    // Schedule tab close + notification after 20 seconds (upload takes ~12s)
+    chrome.alarms.create('naukri_close_upload_tab', { delayInMinutes: 0.35 });
+    console.log('[Naukri BG] Script fired, alarm set to close tab in 21s');
+
+  } catch (err) {
+    console.error('[Naukri BG] Script injection error:', err.message);
+    showNotification('Naukri Upload Failed', err.message);
+    try { await chrome.tabs.remove(tab.id); } catch (_) {}
+  }
 }
 
-// Install/startup handler
-chrome.runtime.onInstalled.addListener(() => {
-  setupAlarms();
-});
+// Setup alarms on install and browser start
+chrome.runtime.onInstalled.addListener(setupAlarms);
+chrome.runtime.onStartup.addListener(setupAlarms);
 
-chrome.runtime.onStartup.addListener(() => {
-  setupAlarms();
-});
-
-// Alarm listener
-chrome.alarms.onAlarm.addListener((alarm) => {
+chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === 'naukri_upload_morning') {
-    triggerResumeUpload('9:00 AM');
+    triggerUpload('9:00 AM');
   } else if (alarm.name === 'naukri_upload_evening') {
-    triggerResumeUpload('5:00 PM');
+    triggerUpload('5:00 PM');
+  } else if (alarm.name === 'naukri_close_upload_tab') {
+    // Close the upload tab and record success
+    const { pendingUploadTabId } = await chrome.storage.local.get('pendingUploadTabId');
+    if (pendingUploadTabId) {
+      try { await chrome.tabs.remove(pendingUploadTabId); } catch (_) {}
+      await chrome.storage.local.remove('pendingUploadTabId');
+    }
+    const { uploadCount } = await chrome.storage.local.get('uploadCount');
+    await chrome.storage.local.set({
+      uploadCount: (uploadCount || 0) + 1,
+      lastUpload: new Date().toISOString()
+    });
+    showNotification('Resume Uploaded!', `Successfully updated on Naukri at ${new Date().toLocaleTimeString()}.`);
+    console.log('[Naukri BG] Upload tab closed, stats updated');
   }
 });
 
-// Message handler from content script
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg.action === 'UPLOAD_SUCCESS') {
-    // Update stats
-    chrome.storage.local.get(['uploadCount'], (result) => {
-      const newCount = (result.uploadCount || 0) + 1;
-      chrome.storage.local.set({
-        uploadCount: newCount,
-        lastUpload: new Date().toISOString()
-      });
-    });
-    
-    // Show success notification
-    const timestamp = new Date().toLocaleString();
-    showNotification(
-      '✅ Resume Uploaded!',
-      `Your resume was successfully updated on Naukri at ${timestamp}`
-    );
-    
-    // Close the tab
-    if (sender.tab) {
-      chrome.tabs.remove(sender.tab.id);
-    }
-    
-    sendResponse({ success: true });
-  } else if (msg.action === 'UPLOAD_FAILED') {
-    // Show failure notification
-    showNotification(
-      '❌ Upload Failed',
-      msg.reason || 'Unknown error occurred'
-    );
-    
-    // Close the tab
-    if (sender.tab) {
-      chrome.tabs.remove(sender.tab.id);
-    }
-    
-    sendResponse({ success: false });
-  } else if (msg.action === 'REFRESH_ALARMS') {
-    // Re-setup alarms (e.g., after user saves new settings)
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg.action === 'REFRESH_ALARMS') {
     setupAlarms();
     sendResponse({ success: true });
+  } else if (msg.action === 'TRIGGER_UPLOAD_NOW') {
+    triggerUpload('Manual');
+    sendResponse({ success: true });
   }
-  
-  return true; // Keep message channel open for async response
+  return true;
 });
